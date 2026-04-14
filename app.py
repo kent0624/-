@@ -19,23 +19,27 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. 資料載入 (相對路徑優化) ---
+# --- 2. 資料載入 ---
 @st.cache_data
 def load_data():
     target_path = "四家七年.csv" 
     if not os.path.exists(target_path):
-        st.error(f"❌ 找不到 {target_path}，請確認檔案已上傳至 GitHub。")
+        st.error(f"❌ 找不到 {target_path}。")
         return None
     try:
         df = pd.read_csv(target_path, encoding='cp950', skiprows=1)
     except:
         df = pd.read_csv(target_path, encoding='utf-8-sig', skiprows=1)
     
-    df.columns = df.columns.str.strip()
-    df['Name'] = df['Name'].astype(str).str.strip()
-    pivot_df = df.pivot(index='MDATE', columns='Name', values='CLOSE')
-    pivot_df.index = pd.to_datetime(pivot_df.index, format='%Y%m%d')
-    return pivot_df.sort_index().interpolate().ffill().bfill()
+    # 清除欄位名稱的空格與特殊字元
+    df.columns = df.columns.str.replace(r'\s+', '', regex=True)
+    
+    if 'Name' in df.columns:
+        df['Name'] = df['Name'].astype(str).str.strip()
+        pivot_df = df.pivot(index='MDATE', columns='Name', values='CLOSE')
+        pivot_df.index = pd.to_datetime(pivot_df.index, format='%Y%m%d')
+        return pivot_df.sort_index().interpolate().ffill().bfill()
+    return None
 
 data = load_data()
 
@@ -47,14 +51,21 @@ if data is not None:
         
         st.header("📊 參數設定")
         all_cols = data.columns.tolist()
-        benchmark_name = next((c for c in all_cols if "0050" in c or "大盤" in c), None)
+        
+        # 加強版基準線偵測
+        benchmark_name = next((c for c in all_cols if any(k in c for k in ["元大台灣50", "0050", "大盤"])), None)
         trading_stocks = [s for s in all_cols if s != benchmark_name]
         
         s1 = st.selectbox("標的股票 A", trading_stocks, index=0)
         s2 = st.selectbox("標的股票 B", trading_stocks, index=min(1, len(trading_stocks)-1))
         threshold = st.slider("開倉門檻", 0.0, 1.0, 0.5, 0.05)
-        rf_rate = st.slider("無風險利率 (%)", 0.0, 5.0, 1.6, 0.1) / 100
-        show_benchmark = st.checkbox(f"📈 疊加 {benchmark_name}", value=False) if benchmark_name else False
+        rf_rate = st.sidebar.slider("無風險利率 (%)", 0.0, 5.0, 1.6, 0.1) / 100
+        
+        # 確保基準線存在才顯示勾選框
+        show_benchmark = False
+        if benchmark_name:
+            st.write("---")
+            show_benchmark = st.checkbox(f"📈 疊加 {benchmark_name} 績效", value=False)
 
     # --- 4. 策略邏輯 ---
     start_dt = data.index.min()
@@ -69,18 +80,11 @@ if data is not None:
         if curr_dt < split_dt: continue
         
         prev_m_idx = m_ret.index[j-1].strftime('%Y-%m')
-        curr_m_idx = curr_dt.strftime('%Y-%m')
+        ret_a, ret_b = m_ret.iloc[j][s1], m_ret.iloc[j][s2]
+        r1_p, r2_p = m_ret.iloc[j-1][s1], m_ret.iloc[j-1][s2]
         
-        # 取得兩檔股票當月的報酬率
-        ret_a = m_ret.iloc[j][s1]
-        ret_b = m_ret.iloc[j][s2]
-        
-        # 取得前一月的相關性
         prev_corr = daily_ret.loc[prev_m_idx][s1].corr(daily_ret.loc[prev_m_idx][s2])
         prev_corr = 0.0 if pd.isna(prev_corr) else prev_corr
-        
-        # 買弱賣強邏輯
-        r1_p, r2_p = m_ret.iloc[j-1][s1], m_ret.iloc[j-1][s2]
         
         if prev_corr < threshold:
             action, strat_ret = "觀望期", 0.0
@@ -91,7 +95,7 @@ if data is not None:
                 action, strat_ret = f"買{s1}/賣{s2}", ret_a - ret_b
         
         results.append({
-            "月份": curr_m_idx,
+            "月份": curr_dt.strftime('%Y-%m'),
             "相關性": prev_corr,
             f"{s1}報酬": ret_a,
             f"{s2}報酬": ret_b,
@@ -107,10 +111,7 @@ if data is not None:
     res_df['Equity'] = (1 + res_df['策略獲利']).cumprod()
     res_df['Peak'] = res_df['Equity'].cummax()
     mdd = ((res_df['Equity'] - res_df['Peak']) / res_df['Peak']).min()
-    
-    monthly_rf = rf_rate / 12
-    excess = res_df['策略獲利'] - monthly_rf
-    sharpe = (excess.mean() / res_df['策略獲利'].std()) * (12**0.5) if res_df['策略獲利'].std() != 0 else 0
+    sharpe = ((res_df['策略獲利'] - (rf_rate/12)).mean() / res_df['策略獲利'].std()) * (12**0.5) if res_df['策略獲利'].std() != 0 else 0
 
     # --- 6. 畫面呈現 ---
     st.title("配對交易量化儀表板")
@@ -129,10 +130,14 @@ if data is not None:
         fig = go.Figure()
         f_val = res_df['累積報酬'].iloc[-1]
         c_color = '#FF0000' if f_val >= 0 else '#008000'
-        fig.add_trace(go.Scatter(x=res_df['月份'], y=res_df['累積報酬']*100, name='策略報酬', line=dict(color=c_color, width=4), fill='tozeroy', fillcolor=f'rgba{tuple(list(int(c_color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4)) + [0.1])}'))
-        if show_benchmark:
-            b_cum = (1 + data[benchmark_name].resample('ME').last().pct_change().loc[res_df['月份'].iloc[0]:]).cumprod() - 1
+        fig.add_trace(go.Scatter(x=res_df['月份'], y=res_df['累積報酬']*100, name='策略報酬', line=dict(color=c_color, width=4), fill='tozeroy', fillcolor=f'rgba({int(c_color[1:3],16)}, {int(c_color[3:5],16)}, {int(c_color[5:7],16)}, 0.1)'))
+        
+        if show_benchmark and benchmark_name:
+            b_data = data[benchmark_name].resample('ME').last().pct_change().loc[res_df['月份'].iloc[0]:]
+            b_cum = (1 + b_data).cumprod() - 1
             fig.add_trace(go.Scatter(x=res_df['月份'], y=b_cum.values[:len(res_df)]*100, name=benchmark_name, line=dict(color='#64748B', dash='dot')))
+        
+        fig.update_layout(hovermode="x unified", template="plotly_white", height=550)
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
@@ -142,9 +147,8 @@ if data is not None:
                 return f'color: {"#FF0000" if val > 0 else "#008000" if val < 0 else "#000000"}'
             return ''
         
-        # 格式化顯示
-        cols_to_format = [f"{s1}報酬", f"{s2}報酬", '策略獲利', '累積報酬']
-        styled_df = res_df[['月份', '相關性', f"{s1}報酬", f"{s2}報酬", '交易動作', '策略獲利', '累積報酬']].style.map(color_taiwan, subset=cols_to_format).format({c: "{:.2%}" for c in cols_to_format}).format({"相關性": "{:.4f}"})
+        cols_fmt = [f"{s1}報酬", f"{s2}報酬", '策略獲利', '累積報酬']
+        styled_df = res_df[['月份', '相關性', f"{s1}報酬", f"{s2}報酬", '交易動作', '策略獲利', '累積報酬']].style.map(color_taiwan, subset=cols_fmt).format({c: "{:.2%}" for c in cols_fmt}).format({"相關性": "{:.4f}"})
         st.dataframe(styled_df, use_container_width=True, height=600)
 
     with tab3:
@@ -154,4 +158,4 @@ if data is not None:
         fig_corr.add_hline(y=threshold, line_dash="dash", line_color="#374151")
         st.plotly_chart(fig_corr, use_container_width=True)
 else:
-    st.info("請確認 GitHub 倉庫中有 CSV 檔案。")
+    st.info("請確認 CSV 檔案中包含標的名稱及數據。")
