@@ -125,7 +125,7 @@ if data is not None:
     tab1, tab2, tab3 = st.tabs(["📈 績效走勢", "📋 交易明細", "📊 相關性觀測"])
 
     with tab1:
-        st.subheader("策略收益曲線 (紅漲綠跌)")
+        st.subheader("策略收益曲線")
         fig = go.Figure()
         f_val = res_df['累積報酬'].iloc[-1]
         c_color = '#FF0000' if f_val >= 0 else '#008000'
@@ -136,7 +136,7 @@ if data is not None:
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-        st.subheader("詳細交易明細 (含雙標的報酬率)")
+        st.subheader("詳細交易明細")
         def color_taiwan(val):
             if isinstance(val, (int, float)):
                 return f'color: {"#FF0000" if val > 0 else "#008000" if val < 0 else "#000000"}'
