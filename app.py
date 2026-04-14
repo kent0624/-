@@ -183,7 +183,7 @@ if data is not None:
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-        st.subheader("詳細交易明細 (紅漲綠跌)")
+        st.subheader("詳細交易明細")
         def color_taiwan(val):
             if isinstance(val, (int, float)):
                 return f'color: {"#FF0000" if val > 0 else "#008000" if val < 0 else "#000000"}'
