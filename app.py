@@ -157,7 +157,7 @@ if data is not None:
     tab1, tab2, tab3 = st.tabs(["📈 績效走勢", "📋 交易明細", "📊 相關性觀測"])
 
     with tab1:
-        st.subheader("累積收益曲線 (漲紅跌綠)")
+        st.subheader("累積收益曲線")
         fig = go.Figure()
         
         final_val = res_df['累積報酬'].iloc[-1]
