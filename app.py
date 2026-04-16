@@ -75,7 +75,7 @@ if data is not None and not data.empty:
         # 強化版 0050 搜尋邏輯
         benchmark_name = None
         for col in all_cols:
-            if any(keyword in col for keyword in ["0050", "元大台灣50", "大盤", "Taiwan 50"]):
+            if any(keyword in col for keyword in ["元大台灣50"]):
                 benchmark_name = col
                 break
         
@@ -85,7 +85,7 @@ if data is not None and not data.empty:
         s1 = st.selectbox("標的股票 A", trading_stocks, index=0)
         s2 = st.selectbox("標的股票 B", trading_stocks, index=min(1, len(trading_stocks)-1))
         
-        threshold = st.slider("開倉門檻", 0.0, 1.0, 0.5, 0.05)
+        threshold = st.slider("交易門檻", 0.0, 1.0, 0.5, 0.05)
         rf_rate = st.sidebar.slider("無風險利率 (%)", 0.0, 5.0, 1.6, 0.1) / 100
         
         # 強制顯示勾選框區域
@@ -172,7 +172,7 @@ if data is not None and not data.empty:
                     b_raw = data[benchmark_name].resample('ME').last()
                     b_start_val = b_raw.loc[:res_df['日期'].iloc[0]].iloc[-1]
                     b_cum = (b_raw.loc[res_df['日期'].iloc[0]:] / b_start_val) - 1
-                    fig.add_trace(go.Scatter(x=res_df['月份'], y=b_cum.values[:len(res_df)]*100, name=benchmark_name, line=dict(color='#64748B', dash='dot')))
+                    fig.add_trace(go.Scatter(x=res_df['月份'], y=b_cum.values[:len(res_df)]*100, name="大盤績效", line=dict(color='#64748B', dash='dot')))
                 
                 fig.update_layout(hovermode="x unified", template="plotly_white", height=550)
                 st.plotly_chart(fig, use_container_width=True)
