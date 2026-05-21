@@ -69,10 +69,10 @@ data = load_data()
 
 if data is not None and not data.empty:
     
-    # 💡 初始化 Session State 用來儲存自訂集團資料
+    # 💡 初始化 Session State 用來儲存自訂集團資料 (重整網頁不消失)
     if "groups" not in st.session_state:
         st.session_state.groups = {
-            "範例：台積電集團": [],  # 預設留白，供使用者體驗
+            "範例：台積電集團": [],
             "範例：聯電集團": []
         }
 
@@ -85,49 +85,83 @@ if data is not None and not data.empty:
         benchmark_name = next((c for c in all_cols if "0050" in c or "元大台灣50" in c), None)
         trading_stocks = [s for s in all_cols if s != benchmark_name]
 
-        # ==========================================
-        # ✨ 新增：自訂集團股維護管理區塊 ✨
-        # ==========================================
+        # ==========================================================
+        # ✨ 整合升級版：自訂集團股維護管理區塊（新增、修改、刪除、配置） ✨
+        # ==========================================================
         st.header("🏢 集團股設定專區")
         
-        with st.expander("🛠️ 新增 / 修改集團名單", expanded=False):
+        with st.expander("🛠️ 管理集團名單（新增/修改/刪除）", expanded=False):
+            # --- 動作一：新增全新集團 ---
             new_group_name = st.text_input("1. 輸入新集團名稱：", placeholder="例如：鴻海集團")
-            if st.button("➕ 建立集團"):
-                if new_group_name and new_group_name not in st.session_state.groups:
-                    st.session_state.groups[new_group_name] = []
-                    st.success(f"已建立【{new_group_name}】")
-                    st.rerun()
+            if st.button("➕ 建立集團", use_container_width=True):
+                if new_group_name:
+                    if new_group_name not in st.session_state.groups:
+                        st.session_state.groups[new_group_name] = []
+                        st.success(f"已建立【{new_group_name}】")
+                        st.rerun()
+                    else:
+                        st.error("⚠️ 此集團名稱已存在！")
             
             st.write("---")
+            
+            # --- 動作二：修改與刪除舊有集團 ---
             if st.session_state.groups:
-                selected_edit_group = st.selectbox("2. 選擇欲編輯的集團：", list(st.session_state.groups.keys()))
+                group_list = list(st.session_state.groups.keys())
+                selected_edit_group = st.selectbox("2. 選擇要操作的集團：", group_list)
                 
-                # 讓使用者多選股票加入此集團
+                # 輸入框：修改集團名字
+                rename_input = st.text_input("修改集團名稱為：", value=selected_edit_group)
+                
+                # 多選框：配置股票到該集團
                 chosen_stocks = st.multiselect(
                     f"為【{selected_edit_group}】配置股票：",
                     options=trading_stocks,
                     default=st.session_state.groups[selected_edit_group]
                 )
                 
-                if st.button("💾 儲存集團名單"):
-                    st.session_state.groups[selected_edit_group] = chosen_stocks
-                    st.success(f"【{selected_edit_group}】名單已更新！")
-                    st.rerun()
+                # 按鈕布局：儲存修改 與 刪除集團
+                col_save, col_del = st.columns(2)
+                
+                with col_save:
+                    if st.button("💾 儲存修改", use_container_width=True):
+                        if rename_input.strip() == "":
+                            st.error("⚠️ 集團名稱不能為空！")
+                        elif rename_input != selected_edit_group:
+                            # 代表使用者有改名
+                            if rename_input in st.session_state.groups:
+                                st.error("⚠️ 新名稱與現有其他集團重複了！")
+                            else:
+                                # 轉移資料並刪除舊名稱
+                                st.session_state.groups[rename_input] = chosen_stocks
+                                del st.session_state.groups[selected_edit_group]
+                                st.success(f"集團已成功更名為【{rename_input}】並更新名單！")
+                                st.rerun()
+                        else:
+                            # 沒改名，單純更新股票勾選清單
+                            st.session_state.groups[selected_edit_group] = chosen_stocks
+                            st.success(f"【{selected_edit_group}】股票名單已更新！")
+                            st.rerun()
+                            
+                with col_del:
+                    if st.button("❌ 刪除此集團", use_container_width=True):
+                        del st.session_state.groups[selected_edit_group]
+                        st.warning(f"已刪除【{selected_edit_group}】集團")
+                        st.rerun()
             else:
                 st.info("目前沒有自訂集團，請先從上方建立。")
 
         st.write("---")
         
         # ==========================================
-        # ✨ 新增：集團股過濾器 ✨
+        # 📊 參數設定（受集團篩選連動）
         # ==========================================
         st.header("📊 參數設定")
         
-        # 建立篩選下拉選單
+        # 下拉選單：決定要篩選哪個集團，或是看全部
         filter_options = ["顯示所有股票"] + list(st.session_state.groups.keys())
         selected_filter = st.selectbox("🏢 過濾集團股：", filter_options, index=0)
         
-        # 根據選取的集團動態改變可選的股票清單
+        # 動態判定目前可選的股票有哪些
         if selected_filter == "顯示所有股票":
             filtered_stocks = trading_stocks
         else:
@@ -138,17 +172,15 @@ if data is not None and not data.empty:
                 st.warning(f"⚠️ {selected_filter} 內尚未設定股票，已自動切換回全股票清單。")
                 filtered_stocks = trading_stocks
 
-        # --- 標的選擇 (會受到集團過濾影響) ---
+        # 搜尋標的選擇
         st.write("🔍 **搜尋標的**")
-        
-        # 防止因為切換過濾導致 index 超出範圍出錯的防呆機制
         s1_index = 0
         s2_index = min(1, len(filtered_stocks)-1) if len(filtered_stocks) > 1 else 0
         
         s1 = st.selectbox("標的股票 A", filtered_stocks, index=s1_index)
         s2 = st.selectbox("標的股票 B", filtered_stocks, index=s2_index)
         
-        # 如果選到同一隻股票，給予貼心提示
+        # 防呆提示：避免兩檔選到同一隻
         if s1 == s2 and len(filtered_stocks) > 1:
             st.error("⚠️ 股票 A 與 股票 B 不能相同，請重新選擇。")
 
@@ -163,7 +195,6 @@ if data is not None and not data.empty:
     # --- 4. 策略邏輯運算 ---
     st.title("配對交易量化儀表板")
     
-    # 確保兩隻股票不同且清單不為空才執行策略
     if s1 and s2 and s1 != s2:
         try:
             start_dt = data.index.min()
